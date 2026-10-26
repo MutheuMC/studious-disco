@@ -1,0 +1,24 @@
+{
+  "name": "jobnest",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test -w backend",
+    "db:generate": "npm run db:generate -w backend",
+    "db:migrate": "npm run db:migrate -w backend",
+    "worker": "npm run worker -w backend",
+    "db:local": "node scripts/local-db.mjs",
+    "setup": "node scripts/setup.mjs",
+    "dev:all": "concurrently -k -n api,web,worker \"npm run dev -w backend\" \"npm run dev -w frontend\" \"npm run worker -w backend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "embedded-postgres": "18.4.0-beta.17"
+  }
+}

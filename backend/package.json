@@ -1,0 +1,44 @@
+{
+  "name": "@jobnest/backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node ../scripts/test.mjs",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:dev": "prisma migrate dev",
+    "worker": "tsx src/worker.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.0",
+    "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "helmet": "^8.1.0",
+    "cookie-parser": "^1.4.7",
+    "express-rate-limit": "^8.1.0",
+    "zod": "^4.1.0",
+    "dotenv": "^17.2.0",
+    "multer": "^2.0.2",
+    "google-auth-library": "^10.3.0",
+    "cheerio": "^1.1.2",
+    "pdfkit": "^0.17.2",
+    "docx": "^9.5.1"
+  },
+  "devDependencies": {
+    "prisma": "6.19.0",
+    "typescript": "^5.9.3",
+    "tsx": "^4.20.6",
+    "@types/node": "^24.0.0",
+    "@types/express": "^5.0.3",
+    "@types/cors": "^2.8.19",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/multer": "^2.0.0",
+    "@types/pdfkit": "^0.17.3",
+    "supertest": "^7.1.4",
+    "@types/supertest": "^6.0.3"
+  }
+}

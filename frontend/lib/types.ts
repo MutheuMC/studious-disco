@@ -1,0 +1,14 @@
+export type User={id:string;name:string;email:string};
+export type Application={id:string;title:string;company:string;location:string;url:string|null;description:string;salary:string;status:string;method:string;contactEmail:string;deadline:string|null;appliedAt:string|null;notes:string;matchReason:string;sendState:string;createdAt:string;updatedAt:string;documents?:Doc[];activities?:Activity[];emails?:Email[]};
+export type Source={id:string;name:string;url:string;notes:string;enabled:boolean;frequencyHours:number;lastCheckedAt:string|null;lastError:string|null;jobsFound:number};
+export type Doc={id:string;name:string;kind:string;content:string;applicationId:string|null;version:number;storageKey:string|null;originalName:string|null;createdAt:string};
+export type Profile={headline:string;location:string;phone:string;summary:string;skills:string;experience:string;education:string;roles:string;countries:string;languages:string;workEligibility:string;remoteOnly:boolean};
+export type Activity={id:string;message:string;createdAt:string};
+export type Notice={id:string;title:string;body:string;href:string;createdAt:string};
+export type Dashboard={applications:Application[];activities:Activity[];sources:number;documents:number;notifications:Notice[]};
+export type Email={id:string;applicationId:string|null;providerId:string;sender:string;subject:string;snippet:string;suggestedStatus:string|null;receivedAt:string};
+export type Integrations={googleConfigured:boolean;encryptionConfigured:boolean;gmailConnected:boolean;gmailEmail:string|null;gmailLastSync:string|null;telegramConfigured:boolean;telegramConnected:boolean;telegramEnabled:boolean;aiConfigured:boolean;searchConfigured:boolean};
+export type Task={id:string;kind:string;status:string;error:string|null;createdAt:string};
+export const statuses=['DISCOVERED','SAVED','PREPARING','READY','APPLIED','ASSESSMENT','INTERVIEW','OFFER','REJECTED','WITHDRAWN'];
+export const label=(s:string)=>s.toLowerCase().replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+export const date=(s:string|null|undefined)=>s?new Date(s).toLocaleDateString(undefined,{month:'short',day:'numeric'}):'—';
