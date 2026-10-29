@@ -22,15 +22,17 @@ import { createGoogleAuthRouter, googleAuthAvailable, type GoogleClientFactory }
 
 const safeUser=(u:{id:string;name:string;email:string})=>({id:u.id,name:u.name,email:u.email});
 const error=(message:string,status=400)=>Object.assign(new Error(message),{status});
+const personalInstanceKey=()=> 'jobnest-instance';
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1}});
 const documentSchema=z.object({name:z.string().trim().min(1).max(200),kind:z.enum(['CV','COVER_LETTER','EMAIL','OTHER']),content:z.string().max(60000),applicationId:z.string().optional().nullable()});
 export function createApp(dependencies: { googleClient?: GoogleClientFactory } = {}){
  const app=express();app.disable('x-powered-by');
  app.use(helmet());app.use(cors({origin:config.frontend,credentials:true}));app.use(express.json({limit:'1mb'}));app.use(cookieParser());
+ app.get('/',(_req,res)=>res.json({service:'JobNest API',status:'ok',health:'/api/health'}));
  app.use('/api',(req,res,next)=>{if(!['GET','HEAD','OPTIONS'].includes(req.method)){
   if(req.headers.origin!==config.frontend){res.status(403).json({error:'Request origin is not allowed.'});return;}
  }next();});
- const authLimiter=rateLimit({windowMs:15*60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Too many sign-in attempts. Try again later.'}});
+ const authLimiter=rateLimit({windowMs:15*60000,limit:20,keyGenerator:personalInstanceKey,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Too many sign-in attempts. Try again later.'}});
  app.get('/api/health',async(_req,res)=>{try{await db.$queryRaw`SELECT 1`;res.json({status:'ok'});}catch{res.status(503).json({status:'database-unavailable'});}});
  app.get('/api/auth/config',async(_req,res)=>res.json({registered:!!(await db.user.findFirst()),googleEnabled:googleAuthAvailable(),ownerEmailRequired:!!config.ownerEmail}));
  app.post('/api/auth/register',authLimiter,async(req,res)=>{
@@ -46,7 +48,7 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory } =
   await createSession(res,user.id);res.json(safeUser(user));
  });
  app.post('/api/auth/logout',async(req,res)=>{if(req.cookies.jobnest_session)await db.session.deleteMany({where:{tokenHash:hashToken(req.cookies.jobnest_session)}});res.clearCookie('jobnest_session',cookieOptions);res.json({ok:true});});
- app.use('/api/google', rateLimit({windowMs:15*60000,limit:60,standardHeaders:'draft-8',legacyHeaders:false}), createGoogleAuthRouter(dependencies.googleClient));
+ app.use('/api/google', rateLimit({windowMs:15*60000,limit:60,keyGenerator:personalInstanceKey,standardHeaders:'draft-8',legacyHeaders:false}), createGoogleAuthRouter(dependencies.googleClient));
  app.use('/api',requireAuth);
  app.get('/api/me',async(req,res)=>res.json(safeUser(await db.user.findUniqueOrThrow({where:{id:req.userId}}))));
  app.get('/api/dashboard',async(req,res)=>{

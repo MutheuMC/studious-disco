@@ -1,0 +1,39 @@
+ValidationError: An undefined 'request.ip' was detected. This might indicate a misconfiguration or the connection being destroyed prematurely. See https://express-rate-limit.github.io/ERR_ERL_UNDEFINED_IP_ADDRESS/ for more information.
+    at Object.ip (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:317:13)
+    at wrappedValidations.<computed> [as ip] (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:683:22)
+    at Object.keyGenerator (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:791:20)
+    at file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:883:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:836:5 {
+  code: 'ERR_ERL_UNDEFINED_IP_ADDRESS',
+  help: 'https://express-rate-limit.github.io/ERR_ERL_UNDEFINED_IP_ADDRESS/'
+}
+ValidationError: The 'X-Forwarded-For' header is set but the Express 'trust proxy' setting is false (default). This could indicate a misconfiguration which would prevent express-rate-limit from accurately identifying users. See https://express-rate-limit.github.io/ERR_ERL_UNEXPECTED_X_FORWARDED_FOR/ for more information.
+    at Object.xForwardedForHeader (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:358:13)
+    at wrappedValidations.<computed> [as xForwardedForHeader] (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:683:22)
+    at Object.keyGenerator (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:793:20)
+    at file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:883:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:836:5 {
+  code: 'ERR_ERL_UNEXPECTED_X_FORWARDED_FOR',
+  help: 'https://express-rate-limit.github.io/ERR_ERL_UNEXPECTED_X_FORWARDED_FOR/'
+}
+ValidationError: The 'Forwarded' header (standardized X-Forwarded-For) is set but currently being ignored. Add a custom keyGenerator to use a value from this header. See https://express-rate-limit.github.io/ERR_ERL_FORWARDED_HEADER/ for more information.
+    at Object.forwardedHeader (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:373:13)
+    at wrappedValidations.<computed> [as forwardedHeader] (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:683:22)
+    at Object.keyGenerator (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:794:20)
+    at file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:883:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:836:5 {
+  code: 'ERR_ERL_FORWARDED_HEADER',
+  help: 'https://express-rate-limit.github.io/ERR_ERL_FORWARDED_HEADER/'
+}
+TypeError [ERR_INVALID_ARG_TYPE]: The "data" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received undefined
+    at Hash.update (node:internal/crypto/hash:115:11)
+    at getPartitionKey (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:211:8)
+    at setDraft8Headers (file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:251:24)
+    at file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:953:13
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/NamAdmin102/Documents/studious-disco/node_modules/express-rate-limit/dist/index.mjs:836:5 {
+  code: 'ERR_INVALID_ARG_TYPE'
+}

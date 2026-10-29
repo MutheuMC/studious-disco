@@ -4,9 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { config as load } from 'dotenv';
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 load({path:path.join(backendRoot,'.env'),quiet:true});
+const rawPort = process.env.PORT?.trim();
+const port = rawPort && /^\d+$/.test(rawPort) ? Number(rawPort) : rawPort || 4000;
+export const normalizeOrigin = (value:string) => new URL(value).origin;
 export const config = {
- host:process.env.HOST || '127.0.0.1',port:Number(process.env.PORT || 4000), production:process.env.NODE_ENV === 'production',
- frontend:process.env.FRONTEND_URL || 'http://127.0.0.1:3000',
+ host:process.env.HOST || '127.0.0.1',port, production:process.env.NODE_ENV === 'production',
+ frontend:normalizeOrigin(process.env.FRONTEND_URL || 'http://127.0.0.1:3000'),
  ownerEmail:process.env.OWNER_EMAIL?.trim().toLowerCase(), storage:path.join(backendRoot,'storage'),
  encryptionKey:process.env.TOKEN_ENCRYPTION_KEY || '',
  googleId:process.env.GOOGLE_CLIENT_ID || '', googleSecret:process.env.GOOGLE_CLIENT_SECRET || '',
