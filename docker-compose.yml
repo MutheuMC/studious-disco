@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: jobnest
       POSTGRES_PASSWORD: jobnest
@@ -9,9 +10,28 @@ services:
       - "127.0.0.1:5433:5432"
     volumes:
       - jobnest_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U jobnest"]
+      test: ["CMD-SHELL", "pg_isready -U jobnest -d jobnest"]
       interval: 5s
+      timeout: 5s
       retries: 10
+      start_period: 10s
+  worker:
+    profiles: ["automation"]
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    init: true
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql://jobnest:jobnest@postgres:5432/jobnest?schema=public
+    command: ["sh", "-c", "npm run db:migrate && node backend/dist/worker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/storage:/app/backend/storage
 volumes:
   jobnest_data:

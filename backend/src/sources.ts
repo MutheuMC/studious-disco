@@ -11,7 +11,7 @@ export function isPublicAddress(ip:string):boolean {
  // Only global-unicast IPv6. Excludes mapped IPv4, loopback, private, link-local and multicast.
  return isIP(ip)===6 && /^[23][0-9a-f]{3}:/i.test(ip) && !/^2001:(db8|0):/i.test(ip);
 }
-export async function readPublicPage(raw:string,redirects=0):Promise<string>{
+export async function readPublicPage(raw:string,redirects=0,maxBytes=2*1024*1024):Promise<string>{
  const url=new URL(normalizeUrl(raw)); if(url.port && !['80','443'].includes(url.port))throw new Error('Only standard HTTP/HTTPS ports are supported.');
  const host=url.hostname.replace(/^\[|\]$/g,'');
  const addresses=await lookup(host,{all:true}); if(!addresses.length||addresses.some(a=>!isPublicAddress(a.address)))throw new Error('This address is not a public website.');
@@ -19,9 +19,9 @@ export async function readPublicPage(raw:string,redirects=0):Promise<string>{
  return new Promise((resolve,reject)=>{
   const send=url.protocol==='https:'?httpsRequest:httpRequest;
   const req=send(url,{headers:{'User-Agent':'JobNest/1.0 (personal job tracker)','Accept':'text/html,application/xml,application/rss+xml,application/json'},lookup:((_hostname:unknown,options:any,cb:any)=>options.all?cb(null,[address]):cb(null,address.address,address.family)) as any},res=>{
-   if(res.statusCode && res.statusCode>=300&&res.statusCode<400&&res.headers.location){res.resume();if(redirects>=4){reject(new Error('Too many redirects.'));return;}resolve(readPublicPage(new URL(res.headers.location,url).href,redirects+1));return;}
+   if(res.statusCode && res.statusCode>=300&&res.statusCode<400&&res.headers.location){res.resume();if(redirects>=4){reject(new Error('Too many redirects.'));return;}resolve(readPublicPage(new URL(res.headers.location,url).href,redirects+1,maxBytes));return;}
    if(res.statusCode!==200){res.resume();reject(new Error('Website returned HTTP '+res.statusCode+'. You can paste a job description instead.'));return;}
-   let size=0;const chunks:Buffer[]=[];res.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>2*1024*1024){res.destroy();reject(new Error('Website response is too large.'));}else chunks.push(chunk);});
+   let size=0;const chunks:Buffer[]=[];res.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>maxBytes){res.destroy();reject(new Error('Website response is too large.'));}else chunks.push(chunk);});
    res.on('end',()=>resolve(Buffer.concat(chunks).toString('utf8')));res.on('error',reject);
   });req.setTimeout(15000,()=>req.destroy(new Error('Website timed out.')));req.on('error',reject);req.end();
  });
