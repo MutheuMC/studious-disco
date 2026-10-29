@@ -1,0 +1,13 @@
+FROM node:24-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/package.json
+COPY frontend/package.json frontend/package.json
+COPY backend/prisma backend/prisma
+RUN npm ci --workspace backend --include-workspace-root=false
+COPY backend backend
+RUN npm run db:generate && npm run build -w backend && mkdir -p backend/storage && chown -R node:node backend/storage
+ENV NODE_ENV=production
+USER node
+CMD ["node", "backend/dist/worker.js"]

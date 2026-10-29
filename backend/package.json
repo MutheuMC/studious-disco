@@ -26,7 +26,9 @@
     "google-auth-library": "^10.3.0",
     "cheerio": "^1.1.2",
     "pdfkit": "^0.17.2",
-    "docx": "^9.5.1"
+    "docx": "^9.5.1",
+    "mammoth": "^1.11.0",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "prisma": "6.19.0",

@@ -12,6 +12,7 @@ export const config = {
  googleId:process.env.GOOGLE_CLIENT_ID || '', googleSecret:process.env.GOOGLE_CLIENT_SECRET || '',
  googleRedirect:process.env.GOOGLE_REDIRECT_URI || 'http://127.0.0.1:3000/api/google/callback',
  telegramToken:process.env.TELEGRAM_BOT_TOKEN || '', telegramUsername:process.env.TELEGRAM_BOT_USERNAME || '',
- aiKey:process.env.AI_API_KEY || '', aiBase:process.env.AI_BASE_URL || 'https://api.openai.com/v1', aiModel:process.env.AI_MODEL || '',
+ aiProvider:process.env.AI_PROVIDER || 'compatible',
+ aiKey:process.env.AI_API_KEY || '', aiBase:process.env.AI_BASE_URL || (process.env.AI_PROVIDER==='ollama'?'http://127.0.0.1:11434/v1':'https://api.openai.com/v1'), aiModel:process.env.AI_MODEL || '',
  searchKey:process.env.BRAVE_SEARCH_API_KEY || ''
 };

@@ -7,7 +7,8 @@ import { db } from '../src/db.js';
 import { config } from '../src/config.js';
 import { encrypt,hashToken } from '../src/security.js';
 import { runNextTask } from '../src/worker.js';
-const app=createApp();let cookie='';let jobId='';let sourceId='';let docId='';let userId='';
+import { pdfBuffer,docxBuffer } from '../src/documents.js';
+const app=createApp({searchExecutor:async()=>({added:0,reviewed:0,retrieved:0,roles:[],aiAssessed:false,warnings:[],applicationIds:[]})});let cookie='';let jobId='';let sourceId='';let docId='';let userId='';
 const call=(method:'get'|'post'|'patch'|'put'|'delete',path:string)=>request(app)[method]('/api'+path).set('Origin',config.frontend).set('Cookie',cookie);
 before(async()=>{if(!new URL(process.env.DATABASE_URL!).pathname.endsWith('_test'))throw new Error('Tests require a dedicated *_test database.');await db.user.deleteMany();});
 after(async()=>{await db.user.deleteMany();await db.$disconnect();});
@@ -21,8 +22,71 @@ test('source URLs are remembered through the assistant and visible in sources',a
 test('source pause preserves source notes',async()=>{const r=await call('patch','/sources/'+sourceId).send({enabled:false});assert.equal(r.status,200);const source=(await call('get','/sources')).body[0];assert.equal(source.enabled,false);assert.ok(source.notes.includes('future searches'));});
 test('queued source checks deduplicate and reject private-network access',async()=>{const source=await call('post','/sources').send({name:'Blocked local source',url:'http://127.0.0.1',enabled:false});const a=await call('post','/sources/'+source.body.id+'/check');const b=await call('post','/sources/'+source.body.id+'/check');assert.equal(a.status,202);assert.equal(a.body.id,b.body.id);assert.ok(await runNextTask());const task=await db.task.findUniqueOrThrow({where:{id:a.body.id}});assert.equal(task.status,'PENDING');assert.ok(task.error?.includes('not a public'));});
 test('documents create immutable versions and export real PDF/DOCX files',async()=>{const r=await call('post','/documents').send({name:'Application CV',kind:'CV',content:'Test Owner\nDeveloper\nTypeScript',applicationId:jobId});assert.equal(r.status,201);docId=r.body.id;const updated=await call('patch','/documents/'+docId).send({content:'Updated CV'});assert.equal(updated.status,201);assert.equal(updated.body.version,2);assert.notEqual(updated.body.id,docId);assert.equal((await db.document.findUniqueOrThrow({where:{id:docId}})).content,'Test Owner\nDeveloper\nTypeScript');const pdf=await call('get','/documents/'+docId+'/download');assert.equal(pdf.headers['content-type'],'application/pdf');assert.equal(pdf.body.subarray(0,5).toString(),'%PDF-');const word=await call('get','/documents/'+docId+'/download?format=docx').buffer(true).parse((res:any,cb:any)=>{const chunks:Buffer[]=[];res.on('data',(c:Buffer)=>chunks.push(c));res.on('end',()=>cb(null,Buffer.concat(chunks)));});assert.equal(word.body.subarray(0,2).toString(),'PK');});
+test('CV upload extracts PDF and DOCX facts, then applies only explicitly approved fields',async()=>{
+ const before=(await call('get','/profile')).body;
+ const text='CV Candidate\nLocation: Nairobi, Kenya\nSummary\nVerified candidate summary.\nSkills\nTypeScript, PostgreSQL\nExperience\nEngineer, Example Ltd, 2020-2024\nEducation\nExample University';
+ for(const [mime,filename,buffer] of [
+  ['application/pdf','candidate.pdf',await pdfBuffer(text)],
+  ['application/vnd.openxmlformats-officedocument.wordprocessingml.document','candidate.docx',await docxBuffer(text)]
+ ] as const){
+  const uploaded=await call('post','/documents/upload').attach('file',buffer,{filename,contentType:mime});
+  assert.equal(uploaded.status,201,JSON.stringify(uploaded.body));
+  try{
+   const extracted=await call('post','/documents/'+uploaded.body.id+'/extract-profile');
+   assert.equal(extracted.status,200,JSON.stringify(extracted.body));
+   assert.equal(extracted.body.fields.location,'Nairobi, Kenya');
+   assert.equal(extracted.body.fields.skills,'TypeScript, PostgreSQL');
+   assert.equal((await call('get','/profile')).body.summary,before.summary);
+   const payload={documentId:uploaded.body.id,fields:{skills:extracted.body.fields.skills}};
+   assert.equal((await call('post','/profile/import-cv').send(payload)).status,400);
+   assert.equal((await call('post','/profile/import-cv').send({...payload,approved:true,fields:{roles:'not a CV fact'}})).status,400);
+   assert.equal((await call('post','/profile/import-cv').send({...payload,approved:true,fields:{}})).status,400);
+   const imported=await call('post','/profile/import-cv').send({...payload,approved:true});
+   assert.equal(imported.status,200,JSON.stringify(imported.body));
+   assert.equal(imported.body.skills,'TypeScript, PostgreSQL');
+   for(const field of ['summary','experience','roles','countries','remoteOnly'])assert.equal(imported.body[field],before[field]);
+  }finally{
+   await call('delete','/documents/'+uploaded.body.id);
+  }
+ }
+});
+test('certificate uploads expose qualifications for review without changing profile until approval',async()=>{
+ const before=(await call('get','/profile')).body;
+ const text='Certificate of Completion\nTest Owner\nInfection Prevention Course\nExample Training Institute\nCompleted 2025';
+ const file=await pdfBuffer(text);
+ const uploaded=await call('post','/documents/upload').field('kind','CERTIFICATE').attach('file',file,{filename:'certificate.pdf',contentType:'application/pdf'});
+ assert.equal(uploaded.status,201,JSON.stringify(uploaded.body));assert.equal(uploaded.body.kind,'CERTIFICATE');
+ try{
+  const extracted=await call('post','/documents/'+uploaded.body.id+'/extract-profile');
+  assert.equal(extracted.status,200,JSON.stringify(extracted.body));assert.equal(extracted.body.kind,'CERTIFICATE');
+  assert.match(extracted.body.fields.education,/Infection Prevention Course/);
+  assert.deepEqual((await call('get','/profile')).body,before);
+  const education=[before.education,extracted.body.fields.education].filter(Boolean).join('\n');
+  const imported=await call('post','/profile/import-cv').send({approved:true,documentId:uploaded.body.id,fields:{education}});
+  assert.equal(imported.status,200);assert.equal(imported.body.education,education);
+  assert.equal(imported.body.experience,before.experience);assert.equal(imported.body.skills,before.skills);
+ }finally{await call('delete','/documents/'+uploaded.body.id);}
+});
+test('discovery starts immediately without a Brave key or manual search terms',async()=>{
+ const response=await call('post','/discover').send({});assert.equal(response.status,202,JSON.stringify(response.body));
+ assert.equal(response.body.kind,'SEARCH');assert.deepEqual(response.body.payload,{query:'',trigger:'manual'});assert.equal(response.body.status,'RUNNING');
+ const status=await call('get','/integrations');assert.equal(status.body.searchConfigured,true);assert.equal(status.body.searchMode,'free-feeds');
+ // Leave unrelated task tests isolated; retrieval itself is covered with recorded feeds.
+ for(let attempt=0;attempt<100;attempt++){if((await db.task.findUniqueOrThrow({where:{id:response.body.id}})).status!=='RUNNING')break;await new Promise(resolve=>setTimeout(resolve,10));}await db.task.delete({where:{id:response.body.id}});
+});
+test('unreadable CV extraction leaves the profile unchanged and the upload available',async()=>{
+ const before=(await call('get','/profile')).body;
+ const uploaded=await call('post','/documents/upload').attach('file',Buffer.from('%PDF-damaged'),{filename:'damaged.pdf',contentType:'application/pdf'});
+ assert.equal(uploaded.status,201);
+ try{
+  const response=await call('post','/documents/'+uploaded.body.id+'/extract-profile');
+  assert.equal(response.status,422);assert.match(response.body.error,/could not be read/);
+  assert.deepEqual((await call('get','/profile')).body,before);
+  assert.ok(await db.document.findUnique({where:{id:uploaded.body.id}}));
+ }finally{await call('delete','/documents/'+uploaded.body.id);}
+});
 test('invalid and oversized uploads do not create documents',async()=>{const r=await call('post','/documents/upload').attach('file',Buffer.from('invalid'),{filename:'fake.pdf',contentType:'application/pdf'});assert.equal(r.status,400);const oversized=await call('post','/documents/upload').attach('file',Buffer.alloc(9*1024*1024),{filename:'large.pdf',contentType:'application/pdf'});assert.equal(oversized.status,400);});
-test('another session cannot read or modify the owner records',async()=>{const other=await db.user.create({data:{ownerKey:'test-other',name:'Other',email:'other@test.invalid'}});const token=randomBytes(32).toString('hex');await db.session.create({data:{userId:other.id,tokenHash:hashToken(token),expiresAt:new Date(Date.now()+60000)}});const original=cookie;cookie='jobnest_session='+token;assert.equal((await call('get','/applications/'+jobId)).status,404);assert.equal((await call('patch','/applications/'+jobId).send({status:'REJECTED'})).status,404);assert.equal((await call('get','/documents/'+docId+'/download')).status,404);assert.equal((await call('get','/sources')).body.length,0);cookie=original;await db.user.delete({where:{id:other.id}});});
+test('another session cannot read or modify the owner records',async()=>{const other=await db.user.create({data:{ownerKey:'test-other',name:'Other',email:'other@test.invalid'}});const token=randomBytes(32).toString('hex');await db.session.create({data:{userId:other.id,tokenHash:hashToken(token),expiresAt:new Date(Date.now()+60000)}});const original=cookie;cookie='jobnest_session='+token;assert.equal((await call('get','/applications/'+jobId)).status,404);assert.equal((await call('patch','/applications/'+jobId).send({status:'REJECTED'})).status,404);assert.equal((await call('get','/documents/'+docId+'/download')).status,404);assert.equal((await call('get','/sources')).body.length,0);assert.equal((await call('post','/documents/'+docId+'/extract-profile')).status,404);assert.equal((await call('post','/profile/import-cv').send({approved:true,documentId:docId,fields:{skills:'Stolen'}})).status,404);cookie=original;await db.user.delete({where:{id:other.id}});});
 test('email sending requires approval and prevents duplicate sends',async()=>{const rejected=await call('post','/applications/'+jobId+'/send').send({recipient:'jobs@example.com',subject:'Application',body:'Hello',documentIds:[]});assert.equal(rejected.status,400);await db.integration.update({where:{userId},data:{gmailTokens:encrypt(JSON.stringify({access_token:'test-only-token',expiry_date:Date.now()+3600000}))}});const originalFetch=globalThis.fetch;let sends=0;globalThis.fetch=async(input,options)=>{if(String(input).includes('/messages/send')){sends++;assert.ok(String(options?.body).includes('raw'));return new Response(JSON.stringify({id:'mail1',threadId:'thread1'}),{status:200,headers:{'Content-Type':'application/json'}});}throw new Error('Unexpected network request');};try{const body={approved:true,recipient:'jobs@example.com',subject:'Application',body:'Hello',documentIds:[docId]};const first=await call('post','/applications/'+jobId+'/send').send(body);assert.equal(first.status,200,JSON.stringify(first.body));assert.equal((await call('post','/applications/'+jobId+'/send').send(body)).status,409);assert.equal(sends,1);assert.equal((await call('delete','/documents/'+docId)).status,400);const job=(await call('get','/applications/'+jobId)).body;assert.equal(job.status,'APPLIED');assert.equal(job.sendState,'SENT');assert.ok(job.appliedAt);}finally{globalThis.fetch=originalFetch;}});
 test('uncertain email sends are blocked from automatic retries',async()=>{const job=await call('post','/applications').send({title:'Analyst',company:'Another',method:'EMAIL',contactEmail:'jobs@example.org'});const originalFetch=globalThis.fetch;globalThis.fetch=async()=>{throw new Error('Connection dropped');};try{const body={approved:true,recipient:'jobs@example.org',subject:'Application',body:'Hello',documentIds:[]};assert.equal((await call('post','/applications/'+job.body.id+'/send').send(body)).status,502);assert.equal((await call('post','/applications/'+job.body.id+'/send').send(body)).status,409);assert.equal((await db.application.findUniqueOrThrow({where:{id:job.body.id}})).sendState,'UNKNOWN');}finally{globalThis.fetch=originalFetch;}});
 test('logout invalidates the session',async()=>{assert.equal((await call('post','/auth/logout')).status,200);assert.equal((await call('get','/applications')).status,401);});

@@ -35,3 +35,23 @@
 /* Explicit Google and email account access. */
 .auth-mode-switch{display:flex;padding:4px;background:#f0f4ef;border:1px solid #e5ece1;border-radius:10px;margin-bottom:30px;gap:4px}.auth-mode-switch button{flex:1;border:0;background:transparent;color:#81917a;border-radius:7px;padding:10px 12px;font-size:12px;font-weight:600}.auth-mode-switch button.selected{background:#fff;color:#286b50;box-shadow:0 2px 5px #294c2910}.auth-form .google{gap:12px;color:#324538;font-weight:600;background:#fff;border-color:#dce4d8}.auth-form .google:disabled{opacity:.65;cursor:not-allowed}.auth-form .google-permissions-note{font-size:10px;line-height:1.8;color:#84917e;text-align:center;margin:12px 0 0}.auth-form .google-setup-note{font-size:10px;color:#8d977f;line-height:1.7;text-align:center;margin:10px 0 0}.auth-form .personal-owner-note{font-size:11px;color:#8e815f;background:#faf6e9;border:1px solid #f0e8cf;padding:12px;border-radius:8px;margin-bottom:18px}.auth-form .auth-switch-note{font-size:11px;text-align:center;margin:18px 0 0;color:#82907b}.auth-switch-note .text-btn{font-size:11px;margin-left:3px}.auth-form .auth-foot{margin-top:18px!important;margin-bottom:0}.auth-form .divider{margin:22px 0}.auth-form-wrap{padding-top:40px;padding-bottom:40px}
 @media(max-width:740px){.auth-mode-switch{margin-bottom:24px}.auth-mode-switch button{font-size:12px}.auth-form .google-permissions-note,.auth-form .google-setup-note{font-size:10px}.auth-form-wrap{padding-top:28px;padding-bottom:35px}}
+
+.cv-import-field { padding: 18px 0; border-top: 1px solid var(--border, #e5e7eb); }
+.cv-import-field details { margin: 8px 0 14px; }
+.cv-extracted-text { margin: 20px 0; }
+.cv-extracted-text pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: #f5f7f6; font: inherit; }
+.cv-import-field summary, .cv-extracted-text summary { cursor: pointer; }
+
+.automation-panel { padding: 24px; margin-bottom: 24px; }
+.automation-facts { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 16px 0; color: var(--muted); font-size: 12px; }
+.automation-warning { background: #fff7e6; border-radius: 8px; padding: 12px; margin: 12px 0; color: #75551c; }
+.automation-controls { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
+.automation-panel h3, .automation-panel p { margin-bottom: 12px; }
+.automation-panel hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
+.search-now-form { margin-top: 20px; }
+.search-now-form .btn { margin-bottom: 12px; }
+.search-progress { padding: 14px; border: 1px solid var(--line); border-radius: 10px; margin: 12px 0; }
+.search-progress.failed { color: #a84e49; }
+.opportunity-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.opportunity-tabs button { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.opportunity-tabs button.selected { background: var(--green); color: white; }

@@ -50,11 +50,11 @@ Set **OWNER_EMAIL** in backend/.env before exposing the instance to restrict the
 - Private PDF/DOCX uploads (8 MB maximum), editable text documents, immutable edit versions, PDF/DOCX export, and application links.
 - AI match analysis and tailored CV, cover-letter, and email drafts when a provider is configured.
 - Gmail authorization, encrypted provider credentials, resumable synchronization, conservative application matching, original-message links, and reviewed status suggestions.
-- Explicitly approved email submission with attachment selection, saved recipient/message/document IDs, and duplicate-send protection. Uncertain sends remain blocked pending manual verification in Gmail. Submitted document versions cannot be deleted while retained in an application’s history.
+- Manually approved email submission plus opt-in rule-based automatic email applications with approved templates and document versions; attachment selection, saved recipient/message/document IDs, and duplicate-send protection. Uncertain sends remain blocked pending manual verification in Gmail. Submitted document versions cannot be deleted while retained in an application’s history.
 - Telegram private-chat pairing and alerts.
 - Database-backed scheduled work with atomic task claiming, leases, deduplication keys, retries, and visible failures.
 
-Uploaded CVs are stored as files; automatic extraction of their contents is not implemented. Enter verified experience and skills in My Profile for AI drafting. The assistant retrieves saved profile/source/application context for each response. Chat text itself is session-local. Source and profile memory persists in PostgreSQL.
+Upload a PDF or DOCX CV from My Profile or Documents, or choose Upload certificate in Documents, to extract its text locally and review suggested summary, skills, experience, education, languages, and labeled contact details. Select the fields to update and save them to your profile; existing values are unchecked by default. You can also choose “Extract to profile” on an existing CV. Extraction uses common section headings without AI credentials. When AI is connected, it selects supported passages for the reviewed fields. AI-assisted extraction reads the first 24,000 characters; the complete extracted text remains visible for review. Standalone certificates are imported as education/qualifications, with combined existing values shown for review before saving. Scanned PDFs need OCR before upload, and password-protected or unreadable files show an error while keeping the original upload. Check the extracted facts before saving, especially for CVs with columns. Your job preferences and account details are preserved. The assistant retrieves saved profile/source/application context for each response. Chat text itself is session-local. Source and profile memory persists in PostgreSQL.
 
 ## Integrations
 
@@ -78,21 +78,49 @@ Create a bot through BotFather. Set TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME
 
 ### AI
 
-Set AI_API_KEY, AI_BASE_URL (an OpenAI-compatible API base ending in /v1), and AI_MODEL. Requests use the chat-completions interface. Choose a model available through your provider. Profile facts and the selected job description are sent for document preparation; contextual chat includes saved profile/source/application information. Outputs require review and may contain marked questions for missing facts.
+Use your own Ollama server without a paid API key:
 
-### Web search
+```env
+AI_PROVIDER=ollama
+AI_BASE_URL=http://127.0.0.1:11434/v1
+AI_MODEL=your-installed-model
+AI_API_KEY=
+```
 
-Set BRAVE_SEARCH_API_KEY. Use Discover Jobs for manual searches. The worker runs a daily search using your preferred roles, countries, and remote preference when roles are set. Search results are leads, not verified job postings: check the original source and use Analyze Match before applying.
+Set AI_BASE_URL to your server's reachable address if it runs on another machine. If your proxy requires authentication, set AI_API_KEY. Use a locally installed model that can follow JSON instructions. Compatible hosted providers still work with AI_PROVIDER=compatible and an API key. Restart the API and worker after configuration changes.
+
+The AI plans suitable roles from reviewed profile facts, including skills, experience, education and imported certificates, then assesses jobs actually retrieved from public sources. Scores describe suitability, not hiring probability; location and work authorization still require checking. Candidate facts go to your configured AI server, never to the public feed providers. Drafts and document imports require review. AI extraction only accepts passages that exist in the uploaded document; it cannot verify certificate authenticity.
+
+### Free job discovery
+
+No Brave key, search subscription, or paid AI API is required when using your own Ollama server. In Discover Jobs, leave the focus blank to use your profile, or enter a role to narrow the search. Search now starts immediately in the API process and returns progress without waiting for the worker. Initial keyword matches appear as soon as retrieval finishes, before AI assessment; the recurring schedule is unchanged. Closing the browser does not cancel a running search. A lost API process leaves a persisted task that the worker can recover after its lease expires. The worker runs discovery every six hours by default once your profile contains roles, skills, experience, a summary, a headline, or education/certificates. Change the interval to 6, 12, or 24 hours, or pause automatic search, in Discover Jobs or Settings & connections. Import your documents and approve the facts first; unreviewed uploads do not silently become candidate qualifications.
+
+The backend retrieves public feeds from [Arbeitnow](https://www.arbeitnow.com/blog/job-board-api) (mainly European jobs) and [Remotive](https://github.com/remotive-com/remote-jobs-api) (remote jobs), plus up to ten enabled saved RSS/Atom or JSON-LD job websites. Public feeds are cached for six hours across restarts. Remotive listings are attributed with their original board links and are delayed by 24 hours. Coverage is limited to the retrieved feed pages, not the whole internet; add local job sources for your country and profession.
+
+Ollama suggests roles and qualification keywords, the backend shortlists up to 12 relevant listings, and Ollama assesses them in bounded batches. Discover Jobs sorts by AI suitability and shows source attribution, with explanations in application details. A source outage is recorded in Recent activity; an AI failure falls back to explicitly labeled keyword results, with no AI score and an explanation in Recent activity. Run discovery again after reconnecting Ollama. Search progress refreshes every 1.5 seconds while running; background task completions refresh the opportunity list automatically. Use New matches, Email applications, Portal applications, Needs review, and Applied to see the next action for each job. Last/next search times, source or model warnings, and worker connectivity are visible in the automation panel. Without configured AI, keyword discovery works and is explicitly labeled without an AI score. BRAVE_SEARCH_API_KEY remains optional for additional manual search leads; it is never required for free discovery. Check each original listing for current availability, requirements and eligibility before applying.
 
 ## Worker schedule
 
 - Check enabled saved sources at their chosen interval.
 - Sync connected Gmail every 15 minutes.
-- Run a daily broad search when configured and preferred roles exist.
+- Run profile-based discovery at the selected 6/12/24-hour interval once candidate facts exist. Pausing automatic search also pauses scheduled saved-source checks; manual searches and source checks remain available.
+- Check application instructions for assessed matches, prepare strong portal matches, and process eligible automatic email applications under saved rules.
 - Create reminders for saved/preparing/ready applications due within two days.
 - Poll Telegram pairing and deliver pending alerts every cycle.
 
-Monitoring requires the worker process to remain running. Unsupported pages, logins, CAPTCHAs, and JavaScript-only listings need a custom adapter or manual entry. No universal crawler or automatic portal login is included. Automated email applications without review are not enabled.
+Monitoring and application preparation require the worker process to remain running. The UI reports its heartbeat; Search now works even when the worker is offline. For local development use `npm run dev:all`. For a worker that restarts automatically with Docker, after setting up backend/.env:
+
+```sh
+docker compose --profile automation up -d --build
+```
+
+The optional worker service shares PostgreSQL and private document storage with the host API, applies migrations on startup, and restarts unless stopped. Its AI_BASE_URL must be reachable from inside the container; 127.0.0.1 there refers to the container. The machine hosting the worker still needs to stay on. Do not run a second Telegram polling worker for the same bot.
+
+Monitoring requires live internet access to the configured sources. Unsupported pages, logins, CAPTCHAs, and JavaScript-only listings need a custom adapter or manual entry. No universal crawler or automatic portal login is included. Automatic email sending is off by default. Enable it only in Settings & connections after selecting allowed job-title phrases, exact recipient domains, a minimum match score (default 85), a rolling 24-hour send limit (default 3), immutable approved document versions including a CV, and a complete approved subject/body template. Supported template fields are `{{title}}`, `{{company}}`, `{{name}}`, `{{skills}}` and `{{summary}}`. Saving enabled rules authorizes future matching emails without an individual Send click. The worker personalizes this approved text and attaches the chosen versions; it does not silently send freshly generated, unreviewed document drafts.
+
+The application address must be explicitly shown in application instructions on the original advert. The job must match approved title phrases and domains, have a future deadline verified from structured data or an ISO date label, a current profile assessment with no gaps/unknowns, recorded work eligibility, and all required approved attachments. A high score alone is insufficient. The worker checks the full advert with AI again and rereads the instructions before claiming a send. Complex instructions, changed profiles, missing facts, unavailable AI, and quota limits go to Needs review. Quotas and send claims are atomic. Unconfirmed sends remain blocked; verify them in Gmail rather than retrying automatically.
+
+Strong portal matches can receive CV and cover-letter drafts when portal preparation is enabled. Review those drafts, use the original portal, then choose “I completed the portal application.” A portal job is never marked applied merely because documents were prepared.
 
 ## Development and verification
 
@@ -112,4 +140,4 @@ Deploy the Next.js frontend, the Express API, and one continuously running worke
 
 ## Follow-up work
 
-Automatic CV text extraction; richer site-specific readers; full-text email matching; document layout templates; configurable digests and quiet hours; password recovery; and optional rule-based auto-application can be added after the initial release is reviewed.
+OCR for scanned CVs; richer site-specific readers; full-text email matching; document layout templates; configurable digests and quiet hours; password recovery; and richer application-instruction adapters can be added after the initial release is reviewed.
