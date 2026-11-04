@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import { rateLimit } from 'express-rate-limit';
+import { configureTrustedProxies,createRateLimiter } from './rate-limits.js';
 import multer from 'multer';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -27,17 +27,17 @@ import { createGoogleAuthRouter, googleAuthAvailable, type GoogleClientFactory }
 
 const safeUser=(u:{id:string;name:string;email:string})=>({id:u.id,name:u.name,email:u.email});
 const error=(message:string,status=400)=>Object.assign(new Error(message),{status});
-const personalInstanceKey=()=> 'jobnest-instance';
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1}});
 const documentSchema=z.object({name:z.string().trim().min(1).max(200),kind:z.enum(['CV','CERTIFICATE','COVER_LETTER','EMAIL','OTHER']),content:z.string().max(60000),applicationId:z.string().optional().nullable()});
 export function createApp(dependencies: { googleClient?: GoogleClientFactory;searchExecutor?:SearchExecutor } = {}){
  const app=express();app.disable('x-powered-by');
+ configureTrustedProxies(app,config.trustedProxies);
  app.use(helmet());app.use(cors({origin:config.frontend,credentials:true}));app.use(express.json({limit:'1mb'}));app.use(cookieParser());
  app.get('/',(_req,res)=>res.json({service:'JobNest API',status:'ok',health:'/api/health'}));
  app.use('/api',(req,res,next)=>{if(!['GET','HEAD','OPTIONS'].includes(req.method)){
   if(req.headers.origin!==config.frontend){res.status(403).json({error:'Request origin is not allowed.'});return;}
  }next();});
- const authLimiter=rateLimit({windowMs:15*60000,limit:20,keyGenerator:personalInstanceKey,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Too many sign-in attempts. Try again later.'}});
+ const authLimiter=createRateLimiter(15*60000,20,false,'Too many sign-in attempts. Try again later.');
  app.get('/api/health',async(_req,res)=>{try{await db.$queryRaw`SELECT 1`;res.json({status:'ok'});}catch{res.status(503).json({status:'database-unavailable'});}});
  app.get('/api/auth/config',async(_req,res)=>res.json({registered:!!(await db.user.findFirst()),googleEnabled:googleAuthAvailable(),ownerEmailRequired:!!config.ownerEmail}));
  app.post('/api/auth/register',authLimiter,async(req,res)=>{
@@ -53,7 +53,7 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory;sea
   await createSession(res,user.id);res.json(safeUser(user));
  });
  app.post('/api/auth/logout',async(req,res)=>{if(req.cookies.jobnest_session)await db.session.deleteMany({where:{tokenHash:hashToken(req.cookies.jobnest_session)}});res.clearCookie('jobnest_session',cookieOptions);res.json({ok:true});});
- app.use('/api/google', rateLimit({windowMs:15*60000,limit:60,keyGenerator:personalInstanceKey,standardHeaders:'draft-8',legacyHeaders:false}), createGoogleAuthRouter(dependencies.googleClient));
+ app.use('/api/google', createRateLimiter(15*60000,60), createGoogleAuthRouter(dependencies.googleClient));
  app.use('/api',requireAuth);
  app.get('/api/me',async(req,res)=>res.json(safeUser(await db.user.findUniqueOrThrow({where:{id:req.userId}}))));
  app.delete('/api/me',async(req,res)=>{
@@ -113,7 +113,7 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory;sea
  app.put('/api/automation',async(req,res)=>res.json(await saveSettings(req.userId,automationSchema.parse(req.body))));
  app.post('/api/applications/:id/prepare',async(req,res)=>{const job=await db.application.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId}});res.status(202).json(await enqueue(req.userId,'APPLICATION',{applicationId:job.id},'prepare-manual:'+job.id+':'+Date.now()));});
  app.get('/api/documents',async(req,res)=>res.json(await db.document.findMany({where:{userId:req.userId},orderBy:{createdAt:'desc'}})));
- app.post('/api/documents/:id/extract-profile',rateLimit({windowMs:60000,limit:10,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res)=>{
+ app.post('/api/documents/:id/extract-profile',createRateLimiter(60000,10,true,'Too many document extraction requests. Try again in a minute.'),async(req,res)=>{
   const document=await db.document.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId,kind:{in:['CV','CERTIFICATE']}}});
   const text=document.storageKey?await extractCVText(await readFile(path.join(config.storage,document.storageKey)),document.mimeType):cleanCVText(document.content);
   res.json({documentId:document.id,name:document.name,kind:document.kind,text,...await interpretDocument(text,document.kind as 'CV'|'CERTIFICATE')});

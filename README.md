@@ -136,6 +136,8 @@ For schema changes use `npm run db:dev -w backend`, then commit the migration. G
 
 ## Deployment notes
 
+For IIS reverse proxies, missing peer IPs, or rate-limit forwarded-header errors, see [IIS deployment and rate limits](docs/iis-deployment.md). Document extraction is limited per authenticated account; login limits support an explicit `TRUSTED_PROXY_ADDRESSES` setting and safely handle missing socket IPs.
+
 Deploy the Next.js frontend, the Express API, and one continuously running worker. Set BACKEND_URL for the Next.js API proxy. Use HTTPS, NODE_ENV=production, FRONTEND_URL matching the deployed browser origin, managed PostgreSQL, backed-up persistent private storage, and production OAuth redirect settings. SESSION cookies become secure in production. The Express development server binds to 127.0.0.1; set HOST=0.0.0.0 when a container/service needs an external interface. Preserve owner restrictions and the encryption key. Deployment has not been performed.
 
 ## Follow-up work
