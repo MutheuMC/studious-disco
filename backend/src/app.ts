@@ -23,6 +23,7 @@ import { settingsFor,saveSettings,automationSchema } from './automation.js';
 import { startSearchNow,type SearchExecutor } from './searches.js';
 import { sendApplication,submissionSchema } from './submission.js';
 import { rankJobs } from './discovery.js';
+import { withLocationPriority } from './geography.js';
 import { createGoogleAuthRouter, googleAuthAvailable, type GoogleClientFactory } from './google-auth.js';
 
 const safeUser=(u:{id:string;name:string;email:string})=>({id:u.id,name:u.name,email:u.email});
@@ -84,7 +85,7 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory;sea
    return updated;
   });res.json(profile);
  });
- app.get('/api/applications',async(req,res)=>res.json(await db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'}})));
+ app.get('/api/applications',async(req,res)=>{const [jobs,profile]=await Promise.all([db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'}}),db.profile.findUniqueOrThrow({where:{userId:req.userId}})]);res.json(withLocationPriority(jobs,profile));});
  app.post('/api/applications',async(req,res)=>{
   const input=applicationSchema.parse(req.body);const data={...input,userId:req.userId,url:input.url?normalizeUrl(input.url):null,dedupeKey:dedupeKey(input.company,input.title,input.location,input.url),deadline:input.deadline?new Date(input.deadline):null,appliedAt:input.appliedAt?new Date(input.appliedAt):input.status==='APPLIED'?new Date():null};
   const job=await db.application.create({data});await activity(req.userId,'Added '+job.title+' at '+job.company,job.id);res.status(201).json(job);
@@ -108,7 +109,7 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory;sea
  app.delete('/api/sources/:id',async(req,res)=>{await db.source.deleteMany({where:{id:String(req.params.id),userId:req.userId}});res.json({ok:true});});
  app.post('/api/sources/:id/check',async(req,res)=>{const source=await db.source.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId}});res.status(202).json(await enqueue(req.userId,'SOURCE',{sourceId:source.id},'manual:'+source.id+':'+Math.floor(Date.now()/60000)));});
  app.post('/api/discover',async(req,res)=>{const input=z.object({query:z.string().trim().max(500).default('')}).parse(req.body);const task=await startSearchNow(req.userId,input.query,dependencies.searchExecutor);res.status(202).json(task);});
- app.get('/api/searches/:id',async(req,res)=>{const task=await db.task.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId,kind:'SEARCH'}});const applications=await db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'},take:200});res.json({...task,applications});});
+ app.get('/api/searches/:id',async(req,res)=>{const task=await db.task.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId,kind:'SEARCH'}});const [applications,profile]=await Promise.all([db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'},take:200}),db.profile.findUniqueOrThrow({where:{userId:req.userId}})]);res.json({...task,applications:withLocationPriority(applications,profile)});});
  app.get('/api/automation',async(req,res)=>{const settings=await settingsFor(req.userId);const latestRun=await db.task.findFirst({where:{userId:req.userId,kind:'SEARCH'},orderBy:{createdAt:'desc'}});res.json({settings,latestRun,workerAlive:!!settings.workerLastSeenAt&&settings.workerLastSeenAt.getTime()>Date.now()-90000});});
  app.put('/api/automation',async(req,res)=>res.json(await saveSettings(req.userId,automationSchema.parse(req.body))));
  app.post('/api/applications/:id/prepare',async(req,res)=>{const job=await db.application.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId}});res.status(202).json(await enqueue(req.userId,'APPLICATION',{applicationId:job.id},'prepare-manual:'+job.id+':'+Date.now()));});

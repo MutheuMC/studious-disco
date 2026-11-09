@@ -4,6 +4,7 @@ import { db } from '../src/db.js';
 import { config } from '../src/config.js';
 import { discover,parseFreeFeed,rankJobs,planSearch,loadPublicFeed,shortlist,type Candidate } from '../src/discovery.js';
 import { schedule } from '../src/worker.js';
+import { checkSource } from '../src/sources.js';
 
 const original={aiProvider:config.aiProvider,aiKey:config.aiKey,aiBase:config.aiBase,aiModel:config.aiModel,searchKey:config.searchKey};
 const originalFetch=globalThis.fetch;
@@ -113,4 +114,58 @@ test('an unreachable AI server degrades to explicitly labeled keyword results wi
  const saved=await db.application.findMany({where:{userId}});
  assert.ok(saved.every(job=>job.matchScore===null));
  assert.ok(saved.every(job=>job.matchReason.includes('Keyword match only')));
+});
+
+const localPosting=(url:string,location:string)=>'<script type="application/ld+json">'+JSON.stringify({'@type':'JobPosting',title:'Registered Nurse',hiringOrganization:{name:'Example Hospital'},description:'Nursing diploma and patient care.',url,jobLocation:{address:{addressLocality:location}},validThrough:'2099-12-31'})+'</script>';
+test('CV-planned worldwide discovery actively retrieves Kenya and Uganda jobs and exposes individual source failures',async()=>{
+ await db.application.deleteMany({where:{userId}});
+ await db.profile.update({where:{userId},data:{...facts,location:'Nairobi, Kenya'}});
+ const calls:string[]=[];
+ try{
+  const result=await discover(userId,'',async url=>{
+   calls.push(url);
+   if(url.startsWith('https://jobwebkenya.com/jobs/nurse'))return localPosting(url,'Nairobi, KE');
+   if(url.startsWith('https://jobwebuganda.com/jobs/nurse'))return localPosting(url,'Kampala, UG');
+   if(url.includes('jobwebkenya.com')||url.includes('jobwebuganda.com'))return '<h2><a href="/jobs/nurse">Registered Nurse</a></h2>';
+   if(url.includes('myjobmag.co.ke'))return '<p>Empty results</p>';
+   return reader(url);
+  });
+  const saved=await db.application.findMany({where:{userId}});
+  assert.ok(saved.some(job=>job.location==='Nairobi, KE'));
+  assert.ok(saved.some(job=>job.location==='Kampala, UG'));
+  assert.ok(!saved.some(job=>job.location.includes('United States')));
+  assert.ok(calls.some(url=>url.includes('s=Registered+Nurse')),'AI role plan must drive retrieval');
+  assert.ok(result.searchPlan?.startsWith('Kenya → East Africa'));
+  assert.equal(result.sourceReports?.find(source=>source.name==='MyJobMag Kenya')?.status,'empty');
+  assert.equal(result.sourceReports?.find(source=>source.name==='JobWeb Tanzania')?.status,'failed');
+ }finally{await db.profile.update({where:{userId},data:{...facts,location:''}});}
+});
+test('source checks apply the same country and role filters as discovery',async()=>{
+ await db.application.deleteMany({where:{userId}});
+ await db.profile.update({where:{userId},data:{...facts,location:'Nairobi, Kenya',countries:'Kenya'}});
+ const source=await db.source.create({data:{userId,name:'Fixture board',url:'https://board.example/careers'}});
+ try{
+  const result=await checkSource(userId,source.id,async()=>localPosting('https://board.example/jobs/local','Nairobi, KE')+localPosting('https://board.example/jobs/foreign','Berlin, Germany'));
+  assert.equal(result.added,1);
+  const saved=await db.application.findMany({where:{userId}});
+  assert.deepEqual(saved.map(job=>job.location),['Nairobi, KE']);
+  assert.equal(saved[0].discoverySource,'Fixture board');
+ }finally{await db.source.delete({where:{id:source.id}});await db.profile.update({where:{userId},data:{...facts,location:''}});}
+});
+test('profile-based web search runs without manual terms and saves verified job details rather than search snippets',async()=>{
+ await db.application.deleteMany({where:{userId}});
+ await db.profile.update({where:{userId},data:{...facts,roles:'Registered Nurse',location:'Nairobi, Kenya'}});
+ config.aiModel='';config.searchKey='fixture-search-key';const queries:string[]=[];
+ globalThis.fetch=async url=>{
+  const search=new URL(String(url));queries.push(search.searchParams.get('q')||'');
+  assert.equal(search.hostname,'api.search.brave.com');
+  return new Response(JSON.stringify({web:{results:[{url:'https://hospital.example/jobs/local'},{url:'https://hospital.example/search'}]}}));
+ };
+ try{
+  const result=await discover(userId,'',async url=>url==='https://hospital.example/jobs/local'?localPosting(url,'Nairobi, KE'):url==='https://hospital.example/search'?'<p>Search results, not a vacancy</p>':reader(url));
+  assert.ok(queries.includes('Registered Nurse jobs Kenya'));assert.ok(queries.includes('Registered Nurse jobs East Africa'));assert.ok(queries.includes('Registered Nurse jobs worldwide'));
+  assert.equal(result.sourceReports?.find(source=>source.name==='Web search')?.retrieved,1);
+  assert.equal(await db.application.count({where:{userId,url:'https://hospital.example/jobs/local'}}),1);
+  assert.equal(await db.application.count({where:{userId,url:'https://hospital.example/search'}}),0);
+ }finally{await db.profile.update({where:{userId},data:{...facts,location:''}});}
 });

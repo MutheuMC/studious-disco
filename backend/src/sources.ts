@@ -35,7 +35,10 @@ export function parseListings(html:string,sourceUrl:string):Listing[]{
   const types=Array.isArray(obj['@type'])?obj['@type']:[obj['@type']];
   if(types.includes('JobPosting')&&obj.title){
    const locs=Array.isArray(obj.jobLocation)?obj.jobLocation:[obj.jobLocation];
-   const location=locs.map((l:any)=>[l?.address?.addressLocality,l?.address?.addressCountry].filter(Boolean).join(', ')).filter(Boolean).join(' / ') || (obj.jobLocationType==='TELECOMMUTE'?'Remote':'');
+   const country=(value:any)=>typeof value==='string'?value:value?.name||value?.['@id']||'';
+   const places=locs.map((l:any)=>[l?.address?.addressLocality,country(l?.address?.addressCountry)].filter(Boolean).join(', ')).filter(Boolean).join(' / ');
+   const restrictions=(Array.isArray(obj.applicantLocationRequirements)?obj.applicantLocationRequirements:[obj.applicantLocationRequirements]).map((place:any)=>country(place)).filter(Boolean).join(' / ');
+   const location=(obj.jobLocationType==='TELECOMMUTE'?'Remote: '+(restrictions||places||'Eligibility not specified'):places).slice(0,200);
    let url=sourceUrl;try{url=normalizeUrl(new URL(obj.url||sourceUrl,sourceUrl).href);}catch{}
    const deadline=obj.validThrough?new Date(obj.validThrough):undefined;
    const contact=typeof obj.applicationContact?.email==='string'?obj.applicationContact.email:'';
@@ -50,17 +53,84 @@ export function parseListings(html:string,sourceUrl:string):Listing[]{
  });}
  return [...new Map(results.map(v=>[v.url,v])).values()].slice(0,100);
 }
-export async function saveListing(userId:string,listing:Listing){
+export const regionalBoards=[
+ {name:'JobWeb Kenya',url:'https://jobwebkenya.com/',country:'Kenya'},
+ {name:'MyJobMag Kenya',url:'https://www.myjobmag.co.ke/',country:'Kenya'},
+ {name:'JobWeb Uganda',url:'https://jobwebuganda.com/',country:'Uganda'},
+ {name:'JobWeb Tanzania',url:'https://jobwebtanzania.com/',country:'Tanzania'}
+];
+export function boardSearchUrls(raw:string,roles:string[]):string[]{
+ const url=new URL(raw);const host=url.hostname.replace(/^www\./,'');
+ // Only query endpoints that these boards actually expose. Generic sites are read as supplied.
+ if(url.pathname!=='/')return [url.href];
+ const focus=[...new Set(roles.map(role=>role.trim()).filter(Boolean))].slice(0,2);
+ if(!focus.length)return [url.href];
+ if(['jobwebkenya.com','jobwebuganda.com','jobwebtanzania.com'].includes(host))return focus.map(role=>{const search=new URL(url);search.searchParams.set('s',role);search.searchParams.set('ptype','job_listing');return search.href;});
+ if(host==='myjobmag.co.ke')return focus.map(role=>{const search=new URL('/search/jobs',url);search.searchParams.set('q',role);return search.href;});
+ return [url.href];
+}
+export function extractJobLinks(html:string,sourceUrl:string,roles:string[]=[]){
+ const $=cheerio.load(html);const origin=new URL(sourceUrl).origin;const links=new Map<string,string>();
+ $('a[href]').each((_i,element)=>{
+  try{
+   const url=new URL($(element).attr('href')!,sourceUrl);
+   if(url.origin!==origin||!/\/(?:jobs?|vacanc(?:y|ies))\/[^/]+/.test(url.pathname)||/\/(?:page|category|tag)\//.test(url.pathname))return;
+   const normalized=normalizeUrl(url.href);const title=plain($(element).text());
+   if(!links.has(normalized)||title.length>(links.get(normalized)?.length||0))links.set(normalized,title);
+  }catch{/* Ignore malformed and external navigation links. */}
+ });
+ const terms=roles.join(' ').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu)||[];
+ const relevance=(title:string)=>terms.reduce((sum,term)=>sum+(title.toLowerCase().includes(term)?1:0),0);
+ return [...links].sort((a,b)=>relevance(b[1])-relevance(a[1])).map(([url])=>url);
+}
+export async function readJobSource(sourceUrl:string,roles:string[]=[],read:(url:string)=>Promise<string>=(url)=>readPublicPage(url)){
+ const warnings:string[]=[];const listings=new Map<string,Listing>();const links=new Set<string>();const visited=new Set<string>();
+ let pagesRead=0;
+ const collect=async(url:string)=>{
+  const html=await read(url);pagesRead++;visited.add(normalizeUrl(url));
+  for(const listing of parseListings(html,url)){listings.set(listing.url,listing);if(listing.company==='Employer not listed'&&new URL(listing.url).origin===new URL(sourceUrl).origin)links.add(listing.url);}
+  for(const link of extractJobLinks(html,url,roles))links.add(link);
+  return html;
+ };
+ const seeds=boardSearchUrls(sourceUrl,roles);
+ let readable=false;
+ for(const url of seeds){try{const html=await collect(url);readable=true;
+   // Follow one same-site pagination link, preserving the board's query.
+   const $=cheerio.load(html);const next=$('a[href]').toArray().find(el=>$(el).attr('rel')==='next'||/^(?:next(?: page)?\s*[»›>]?|[»›>])$/i.test($(el).text().trim()));
+   if(next){const nextUrl=new URL($(next).attr('href')||'',url);if(nextUrl.origin===new URL(sourceUrl).origin&&!visited.has(normalizeUrl(nextUrl.href)))try{await collect(nextUrl.href);}catch(error){warnings.push('Next page: '+(error as Error).message);}}
+  }catch(error){warnings.push((error as Error).message);}}
+ if(!links.size&&!listings.size&&!seeds.includes(new URL(sourceUrl).href))try{await collect(sourceUrl);readable=true;}catch(error){warnings.push((error as Error).message);}
+ if(!readable)throw new Error(warnings.join('; ')||'Website could not be read.');
+ const details=[...links].filter(url=>!visited.has(url)&&(!listings.has(url)||listings.get(url)!.company==='Employer not listed')).slice(0,16);
+ let cursor=0,failed=0,unreadable=0;
+ // Bound both network concurrency and the number of detail pages per source.
+ await Promise.all(Array.from({length:Math.min(3,details.length)},async()=>{
+  while(cursor<details.length){const url=details[cursor++];try{
+   const jobs=parseListings(await read(url),url);pagesRead++;
+   if(!jobs.length)unreadable++;
+   for(const job of jobs)listings.set(job.url,job);
+  }catch{failed++;}}
+ }));
+ if(failed)warnings.push(failed+' job detail pages could not be reached.');
+ if(unreadable)warnings.push(unreadable+' job detail pages did not expose readable job data.');
+ if(!listings.size)warnings.push('No readable job listings found; this is a source extraction or coverage issue, not proof that no jobs exist.');
+ return {listings:[...listings.values()],warnings,pagesRead,linksFound:links.size};
+}
+export async function saveListing(userId:string,listing:Listing,sourceName?:string){
  const key=dedupeKey(listing.company,listing.title,listing.location,listing.url);
  const existing=await db.application.findUnique({where:{userId_dedupeKey:{userId,dedupeKey:key}}});if(existing)return false;
- await db.application.create({data:{userId,...listing,dedupeKey:key,status:'DISCOVERED'}});return true;
+ await db.application.create({data:{userId,...listing,dedupeKey:key,status:'DISCOVERED',discoverySource:sourceName}});return true;
 }
-export async function checkSource(userId:string,sourceId:string){
+export async function checkSource(userId:string,sourceId:string,read?:(url:string)=>Promise<string>){
  const source=await db.source.findFirstOrThrow({where:{id:sourceId,userId}});
  try{
-  const html=await readPublicPage(source.url);const listings=parseListings(html,source.url);let added=0;
-  for(const listing of listings)if(!listing.deadline||listing.deadline>new Date())if(await saveListing(userId,listing))added++;
-  const error=listings.length?null:'No readable job listings found. This source may need a login or a custom reader. Paste individual job descriptions to continue.';
+  const profile=await db.profile.findUniqueOrThrow({where:{userId}});
+  const {listings,warnings}=await readJobSource(source.url,profile.roles.split(/[,;\n]/).filter(Boolean),read);
+  // Share matching and geographic policy with discovery, including scheduled checks.
+  const {shortlist}=await import('./discovery.js');
+  const matching=shortlist(listings.map(listing=>({listing,source:source.name,remote:/\bremote\b/i.test(listing.location)?true:null})),profile,{roles:[profile.roles||profile.headline],keywords:[profile.skills,profile.education]},'');let added=0;
+  for(const {listing} of matching)if(await saveListing(userId,listing,source.name))added++;
+  const error=warnings.join('; ')||null;
   await db.source.update({where:{id:source.id},data:{lastCheckedAt:new Date(),nextCheckAt:new Date(Date.now()+source.frequencyHours*3600000),lastError:error,jobsFound:{increment:added}}});
   await activity(userId,'Checked '+source.name+': '+added+' new opportunities.');
   if(added)await notify(userId,'New opportunities found',source.name+' has '+added+' new job listings.','source:'+source.id+':'+Date.now(),'/?view=opportunities');

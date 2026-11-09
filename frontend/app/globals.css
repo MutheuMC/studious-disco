@@ -52,6 +52,11 @@
 .search-now-form .btn { margin-bottom: 12px; }
 .search-progress { padding: 14px; border: 1px solid var(--line); border-radius: 10px; margin: 12px 0; }
 .search-progress.failed { color: #a84e49; }
+.search-progress .table-scroll { overflow-x: auto; margin: 12px 0; }
+.search-progress table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.search-progress th, .search-progress td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.search-progress td:first-child { min-width: 125px; }
+.search-progress td:last-child { min-width: 180px; overflow-wrap: anywhere; }
 .opportunity-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .opportunity-tabs button { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
 .opportunity-tabs button.selected { background: var(--green); color: white; }
