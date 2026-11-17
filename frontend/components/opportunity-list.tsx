@@ -22,7 +22,7 @@ export function OpportunityList({tab,search,revision,renderJob}:{tab:string;sear
  const pending=loading||!!data&&data.page!==page;
  return <section className="panel opportunity-list" ref={list} aria-label="Discovered jobs" aria-busy={pending}>
   {error?<div className="opportunity-message" role="alert"><p>{error}</p><button className="btn secondary small-btn" onClick={()=>setRetry(value=>value+1)}><RefreshCw size={15}/>Try again</button></div>
-   :pending?<div className="opportunity-message" role="status"><LoaderCircle className="spin" size={20}/><p>Loading jobs…</p></div>
+   :pending&&(!data||data.page!==page)?<div className="opportunity-message" role="status"><LoaderCircle className="spin" size={20}/><p>Loading jobs…</p></div>
    :data?.items.length?<><div className="table-label"><span>ROLE & COMPANY</span><span>LOCATION</span><span>STATUS</span><span>ADDED</span></div>{data.items.map(renderJob)}</>
    :<div className="opportunity-message"><h3>{search?'No matching jobs':'No jobs in this tab yet'}</h3><p>{search?'Try another company, role, or location.':'Search for jobs or check your saved sources to find opportunities.'}</p></div>}
   {data&&!error&&<nav className="job-pagination" aria-label="Job results pages">

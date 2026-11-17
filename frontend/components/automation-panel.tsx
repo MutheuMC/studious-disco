@@ -5,38 +5,67 @@ import { api,json } from '../lib/api';
 import type { AutomationSettings,AutomationStatus,Doc,Task } from '../lib/types';
 const when=(value:string|null)=>value?new Date(value).toLocaleString():'Not yet';
 const lines=(value:string)=>value.split(/[\n,]/).map(item=>item.trim()).filter(Boolean);
-export function AutomationPanel({mode,documents=[],onUpdated,defaultQuery=''}:{mode:'discovery'|'settings';documents?:Doc[];onUpdated?:()=>void;defaultQuery?:string}) {
- const [status,setStatus]=useState<AutomationStatus|null>(null),[draft,setDraft]=useState<AutomationSettings|null>(null);
- const [query,setQuery]=useState(defaultQuery),[run,setRun]=useState<Task|null>(null),[runId,setRunId]=useState<string|null>(null);
- const [starting,setStarting]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState(false);
- const [roleText,setRoleText]=useState(''),[domainText,setDomainText]=useState('');const initialized=useRef(false);
+type AutomationPanelProps={mode:'discovery'|'settings';documents?:Doc[];onUpdated?:()=>void;defaultQuery?:string};
+export function AutomationPanel(props:AutomationPanelProps){
+ return props.mode==='discovery'?<SearchNowPanel defaultQuery={props.defaultQuery} onUpdated={props.onUpdated}/>:<AutomationSettingsPanel {...props}/>;
+}
+function SearchNowPanel({defaultQuery='',onUpdated}:{defaultQuery?:string;onUpdated?:()=>void}){
+ const [query,setQuery]=useState(defaultQuery),[runId,setRunId]=useState<string|null>(null);
+ const [starting,setStarting]=useState(false),[error,setError]=useState('');
  const callback=useRef(onUpdated);callback.current=onUpdated;
+ useEffect(()=>{
+  if(!runId)return;let active=true;let timer:ReturnType<typeof setTimeout>|undefined;
+  const poll=async()=>{
+   try{
+    const task=await api<Task>('/searches/'+runId+'?includeApplications=false');
+    if(!active)return;
+    if(['COMPLETE','FAILED'].includes(task.status)){
+     setRunId(null);if(task.status==='FAILED')setError(task.error||'Search failed. Please try again.');
+     callback.current?.();return;
+    }
+    timer=setTimeout(()=>void poll(),1500);
+   }catch(reason){if(active){setError((reason as Error).message);setRunId(null);}}
+  };
+  void poll();return()=>{active=false;clearTimeout(timer);};
+ },[runId]);
+ async function search(event:FormEvent){
+  event.preventDefault();if(starting||runId)return;setStarting(true);setError('');
+  try{const task=await api<Task>('/discover',{method:'POST',body:json({query})});setRunId(task.id);}
+  catch(reason){setError((reason as Error).message);}finally{setStarting(false);}
+ }
+ const searching=starting||!!runId;
+ return <section className="panel automation-panel discovery">
+  <form className="search-now-form" onSubmit={search}><label htmlFor="search-now-query">Search now — optional focus<input id="search-now-query" value={query} onChange={event=>setQuery(event.target.value)} maxLength={500} placeholder="Leave blank to use your CV, skills and certificates"/></label><button className="btn primary" disabled={searching}>{searching?<LoaderCircle className="spin" size={17}/>:<Search size={17}/>} {searching?'Searching…':'Search now'}</button><p className="muted small">Leave the focus blank to search using your reviewed profile.</p></form>
+  {error&&<p className="alert error" role="alert">{error}</p>}
+ </section>;
+}
+function AutomationSettingsPanel({documents=[]}:{documents?:Doc[]}) {
+ const [status,setStatus]=useState<AutomationStatus|null>(null),[draft,setDraft]=useState<AutomationSettings|null>(null);
+ const [run,setRun]=useState<Task|null>(null),[runId,setRunId]=useState<string|null>(null);
+ const [saving,setSaving]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState(false);
+ const [roleText,setRoleText]=useState(''),[domainText,setDomainText]=useState('');const initialized=useRef(false);
  async function load(){const state=await api<AutomationStatus>('/automation');setStatus(state);if(!initialized.current){initialized.current=true;setDraft(state.settings);setRoleText(state.settings.allowedRoles.join('\n'));setDomainText(state.settings.allowedEmailDomains.join('\n'));}if(state.latestRun){setRun(state.latestRun);if(['PENDING','RUNNING'].includes(state.latestRun.status))setRunId(state.latestRun.id);}}
  useEffect(()=>{void load().catch(e=>setError(e.message));const timer=setInterval(()=>{void load().catch(()=>{});},15000);return()=>clearInterval(timer);},[]);
  useEffect(()=>{
   if(!runId)return;let active=true;
   const poll=async()=>{
-   try {const result=await api<Task>('/searches/'+runId+'?includeApplications=false');if(!active)return;setRun(result);callback.current?.();if(['COMPLETE','FAILED'].includes(result.status)){setRunId(null);void load();}}
+   try {const result=await api<Task>('/searches/'+runId+'?includeApplications=false');if(!active)return;setRun(result);if(['COMPLETE','FAILED'].includes(result.status)){setRunId(null);void load();}}
    catch(e){if(active){setError((e as Error).message);setRunId(null);}}
   };
   void poll();const timer=setInterval(()=>{void poll();},1500);return()=>{active=false;clearInterval(timer);};
  },[runId]);
- async function search(event:FormEvent){event.preventDefault();setError('');setStarting(true);try{const task=await api<Task>('/discover',{method:'POST',body:json({query})});setRun(task);setRunId(task.id);}catch(e){setError((e as Error).message);}finally{setStarting(false);}}
  async function save(event:FormEvent){event.preventDefault();if(!draft)return;setError('');setSaving(true);setSaved(false);try{const updated=await api<AutomationSettings>('/automation',{method:'PUT',body:json({...draft,allowedRoles:lines(roleText),allowedEmailDomains:lines(domainText)})});setDraft(updated);setSaved(true);await load();}catch(e){setError((e as Error).message);}finally{setSaving(false);}}
- if(!draft)return <section className={'panel automation-panel '+mode}>{error?<p role="alert">{error}</p>:<p>{mode==='settings'?'Loading automation settings…':'Loading search…'}</p>}</section>;
- const searching=starting||!!runId;
- return <section className={'panel automation-panel '+mode}>
-  {mode==='settings'&&<><div className="section-head"><div><h2>Search & application automation</h2><p>Searches planned from your reviewed profile, with local and regional job boards alongside international sources.</p></div><Clock3 size={21}/></div>
+ if(!draft)return <section className="panel automation-panel settings">{error?<p role="alert">{error}</p>:<p>Loading automation settings…</p>}</section>;
+ return <section className="panel automation-panel settings">
+  <div className="section-head"><div><h2>Search & application automation</h2><p>Searches planned from your reviewed profile, with local and regional job boards alongside international sources.</p></div><Clock3 size={21}/></div>
   <div className="automation-facts"><span><strong>{draft.searchEnabled?'Automatic search on':'Automatic search paused'}</strong> · every {draft.searchIntervalHours} hours</span><span>Last search: {when(status?.settings.lastSearchAt||null)}</span><span>Next search: {draft.searchEnabled?when(status?.settings.nextSearchAt||null):'Paused'}</span><span>Last search found {status?.settings.lastSearchAdded||0} new jobs</span><span>Automatic email: {status?.settings.autoApplyEnabled?'enabled under your saved rules':'off'}</span></div>
   {!status?.workerAlive&&<p className="automation-warning">Background worker is offline or has not checked in yet. Scheduled searches and application preparation resume when it reconnects. Search now works independently.</p>}
   {status?.settings.lastSearchError&&<p className="alert error">Last search failed: {status.settings.lastSearchError}</p>}
-  {status?.settings.lastSearchWarnings&&<details><summary>Some search steps need attention</summary><p className="preserve">{status.settings.lastSearchWarnings}</p></details>}</>}
+  {status?.settings.lastSearchWarnings&&<details><summary>Some search steps need attention</summary><p className="preserve">{status.settings.lastSearchWarnings}</p></details>}
   {error&&<p className="alert error" role="alert">{error}</p>}
-  {mode==='discovery'&&<form className="search-now-form" onSubmit={search}><label htmlFor="search-now-query">Search now — optional focus<input id="search-now-query" value={query} onChange={event=>setQuery(event.target.value)} maxLength={500} placeholder="Leave blank to use your CV, skills and certificates"/></label><button className="btn primary" disabled={searching}>{searching?<LoaderCircle className="spin" size={17}/>:<Search size={17}/>}Search now</button><p className="muted small">Leave the focus blank to search using your reviewed profile.</p></form>}
-  {run&&<div className={'search-progress '+(run.status==='FAILED'?'failed':'')} role="status"><strong>{['PENDING','RUNNING'].includes(run.status)?'Searching now':run.status==='COMPLETE'?'Search complete':run.status==='FAILED'?'Search failed':run.status}</strong><p>{run.progress||'Retrieving jobs…'}</p>{run.error&&<p>{run.error}</p>}{run.result&&<><p>{run.result.added} new jobs · {run.result.reviewed} matches assessed</p>{mode==='settings'&&<>{run.result.searchPlan&&<p><strong>Search area:</strong> {run.result.searchPlan}</p>}{run.result.roles?.length? <p><strong>Roles searched:</strong> {run.result.roles.join(', ')}</p>:null}{run.result.sourceReports?.length? <details open><summary>Source coverage</summary><div className="table-scroll"><table><thead><tr><th>Source</th><th>Listings retrieved</th><th>Shortlisted</th><th>Result</th></tr></thead><tbody>{run.result.sourceReports.map((source,index)=><tr key={source.name+index}><td>{source.name}</td><td>{source.retrieved}</td><td>{source.matched}</td><td>{source.status==='failed'?'Failed':source.status==='empty'?'No readable listings':'Read'}{source.message&&<p className="muted small">{source.message}</p>}</td></tr>)}</tbody></table></div></details>:null}{run.result.warnings.length>0&&<details><summary>Search limitations and issues</summary>{run.result.warnings.map((warning,index)=><p key={index}>{warning}</p>)}</details>}</>}</>}</div>}
-  {mode==='settings'&&<form onSubmit={save}>
+  {run&&<div className={'search-progress '+(run.status==='FAILED'?'failed':'')} role="status"><strong>{['PENDING','RUNNING'].includes(run.status)?'Searching now':run.status==='COMPLETE'?'Search complete':run.status==='FAILED'?'Search failed':run.status}</strong><p>{run.progress||'Retrieving jobs…'}</p>{run.error&&<p>{run.error}</p>}{run.result&&<><p>{run.result.added} new jobs · {run.result.reviewed} matches assessed</p>{run.result.searchPlan&&<p><strong>Search area:</strong> {run.result.searchPlan}</p>}{run.result.roles?.length? <p><strong>Roles searched:</strong> {run.result.roles.join(', ')}</p>:null}{run.result.sourceReports?.length? <details open><summary>Source coverage</summary><div className="table-scroll"><table><thead><tr><th>Source</th><th>Listings retrieved</th><th>Shortlisted</th><th>Result</th></tr></thead><tbody>{run.result.sourceReports.map((source,index)=><tr key={source.name+index}><td>{source.name}</td><td>{source.retrieved}</td><td>{source.matched}</td><td>{source.status==='failed'?'Failed':source.status==='empty'?'No readable listings':'Read'}{source.message&&<p className="muted small">{source.message}</p>}</td></tr>)}</tbody></table></div></details>:null}{run.result.warnings.length>0&&<details><summary>Search limitations and issues</summary>{run.result.warnings.map((warning,index)=><p key={index}>{warning}</p>)}</details>}</>}</div>}
+  <form onSubmit={save}>
    <div className="automation-controls"><label className="checkbox"><input type="checkbox" checked={draft.searchEnabled} onChange={event=>setDraft({...draft,searchEnabled:event.target.checked})}/>Automatic job search</label><label>Search interval<select value={draft.searchIntervalHours} onChange={event=>setDraft({...draft,searchIntervalHours:Number(event.target.value) as 6|12|24})}><option value={6}>Every 6 hours</option><option value={12}>Every 12 hours</option><option value={24}>Every 24 hours</option></select></label></div>
-   {mode==='settings'&&<>
     <label className="checkbox"><input type="checkbox" checked={draft.preparePortalDrafts} onChange={event=>setDraft({...draft,preparePortalDrafts:event.target.checked})}/>Prepare CV and cover-letter drafts for strong portal matches</label>
     <hr/><h3>Automatic email applications</h3><p>Choose exact rules and approve the email text and document versions. Only eligible jobs with an explicit application address, a verified future deadline, and no unresolved requirements can be sent. Uncertain cases go to Needs review.</p>
     <label className="checkbox"><input type="checkbox" checked={draft.autoApplyEnabled} onChange={event=>setDraft({...draft,autoApplyEnabled:event.target.checked})}/>Enable automatic email sending under these rules</label>
@@ -47,8 +76,7 @@ export function AutomationPanel({mode,documents=[],onUpdated,defaultQuery=''}:{m
     <label>Approved email subject<input value={draft.subjectTemplate} maxLength={300} onChange={event=>setDraft({...draft,subjectTemplate:event.target.value})}/></label>
     <label>Approved email body<textarea rows={8} value={draft.bodyTemplate} maxLength={20000} onChange={event=>setDraft({...draft,bodyTemplate:event.target.value})} placeholder="Dear hiring team, …"/></label>
     <p className="muted small">Supported placeholders: {'{{title}}, {{company}}, {{name}}, {{skills}}, {{summary}}'}. Saving with automatic sending enabled authorizes the worker to send matching applications using this text and these document versions. Pausing prevents new sends; a send already in progress may complete.</p>
-   </>}
    <div className="form-footer">{saved&&<span role="status">Settings saved</span>}<button className="btn secondary" disabled={saving}>{saving?<LoaderCircle className="spin" size={16}/>:<Check size={16}/>}Save automation settings</button></div>
-  </form>}
+  </form>
  </section>;
 }
