@@ -48,10 +48,17 @@
 .automation-controls { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
 .automation-panel h3, .automation-panel p { margin-bottom: 12px; }
 .automation-panel hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
-.search-now-form { margin-top: 20px; }
+.search-now-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; margin-top: 20px; }
+.search-now-form > label { min-width: 0; margin-bottom: 0; }
+.search-now-form > p { grid-column: 1 / -1; }
 .automation-panel.discovery .search-now-form { margin-top: 0; }
 .automation-panel.discovery .search-now-form > p { margin-bottom: 0; }
-.search-now-form .btn { margin-bottom: 12px; }
+.search-now-form input, .search-now-form .btn { height: 44px; }
+.search-now-form .btn { margin-bottom: 0; }
+@media (max-width: 480px) {
+ .search-now-form { column-gap: 8px; }
+ .search-now-form .btn { padding: 11px 12px; gap: 6px; }
+}
 .search-progress { padding: 14px; border: 1px solid var(--line); border-radius: 10px; margin: 12px 0; }
 .search-progress.failed { color: #a84e49; }
 .search-progress .table-scroll { overflow-x: auto; margin: 12px 0; }
