@@ -2,21 +2,21 @@
 import { useEffect,useRef,useState,type FormEvent } from 'react';
 import { Search,LoaderCircle,Check,Clock3 } from 'lucide-react';
 import { api,json } from '../lib/api';
-import type { Application,AutomationSettings,AutomationStatus,Doc,Task } from '../lib/types';
+import type { AutomationSettings,AutomationStatus,Doc,Task } from '../lib/types';
 const when=(value:string|null)=>value?new Date(value).toLocaleString():'Not yet';
 const lines=(value:string)=>value.split(/[\n,]/).map(item=>item.trim()).filter(Boolean);
-export function AutomationPanel({mode,documents=[],onResults,defaultQuery=''}:{mode:'discovery'|'settings';documents?:Doc[];onResults?:(jobs:Application[])=>void;defaultQuery?:string}) {
+export function AutomationPanel({mode,documents=[],onUpdated,defaultQuery=''}:{mode:'discovery'|'settings';documents?:Doc[];onUpdated?:()=>void;defaultQuery?:string}) {
  const [status,setStatus]=useState<AutomationStatus|null>(null),[draft,setDraft]=useState<AutomationSettings|null>(null);
  const [query,setQuery]=useState(defaultQuery),[run,setRun]=useState<Task|null>(null),[runId,setRunId]=useState<string|null>(null);
  const [starting,setStarting]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState(false);
  const [roleText,setRoleText]=useState(''),[domainText,setDomainText]=useState('');const initialized=useRef(false);
- const callback=useRef(onResults);callback.current=onResults;
+ const callback=useRef(onUpdated);callback.current=onUpdated;
  async function load(){const state=await api<AutomationStatus>('/automation');setStatus(state);if(!initialized.current){initialized.current=true;setDraft(state.settings);setRoleText(state.settings.allowedRoles.join('\n'));setDomainText(state.settings.allowedEmailDomains.join('\n'));}if(state.latestRun){setRun(state.latestRun);if(state.latestRun.status==='RUNNING')setRunId(state.latestRun.id);}}
  useEffect(()=>{void load().catch(e=>setError(e.message));const timer=setInterval(()=>{void load().catch(()=>{});},15000);return()=>clearInterval(timer);},[]);
  useEffect(()=>{
   if(!runId)return;let active=true;
   const poll=async()=>{
-   try {const result=await api<Task&{applications:Application[]}>('/searches/'+runId);if(!active)return;setRun(result);callback.current?.(result.applications);if(['COMPLETE','FAILED'].includes(result.status)){setRunId(null);void load();}}
+   try {const result=await api<Task>('/searches/'+runId+'?includeApplications=false');if(!active)return;setRun(result);callback.current?.();if(['COMPLETE','FAILED'].includes(result.status)){setRunId(null);void load();}}
    catch(e){if(active){setError((e as Error).message);setRunId(null);}}
   };
   void poll();const timer=setInterval(()=>{void poll();},1500);return()=>{active=false;clearInterval(timer);};

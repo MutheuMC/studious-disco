@@ -15,3 +15,6 @@ export type AutomationStatus={settings:AutomationSettings;latestRun:Task|null;wo
 export const statuses=['DISCOVERED','SAVED','PREPARING','READY','APPLIED','ASSESSMENT','INTERVIEW','OFFER','REJECTED','WITHDRAWN'];
 export const label=(s:string)=>s.toLowerCase().replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 export const date=(s:string|null|undefined)=>s?new Date(s).toLocaleDateString(undefined,{month:'short',day:'numeric'}):'—';
+
+export type Opportunity=Pick<Application,'id'|'title'|'company'|'location'|'matchScore'|'discoverySource'|'status'|'createdAt'|'locationPriority'>;
+export type OpportunityPage={items:Opportunity[];total:number;page:number;pageSize:number;totalPages:number;hasPrevious:boolean;hasNext:boolean};

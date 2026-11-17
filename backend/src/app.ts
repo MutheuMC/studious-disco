@@ -24,6 +24,7 @@ import { startSearchNow,type SearchExecutor } from './searches.js';
 import { sendApplication,submissionSchema } from './submission.js';
 import { rankJobs } from './discovery.js';
 import { withLocationPriority } from './geography.js';
+import { listOpportunities,opportunityQuery } from './opportunities.js';
 import { createGoogleAuthRouter, googleAuthAvailable, type GoogleClientFactory } from './google-auth.js';
 
 const safeUser=(u:{id:string;name:string;email:string})=>({id:u.id,name:u.name,email:u.email});
@@ -71,7 +72,7 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory;sea
   res.json({ok:true});
  });
  app.get('/api/dashboard',async(req,res)=>{
-  const [applications,activities,sources,documents,notifications]=await Promise.all([db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'}}),db.activity.findMany({where:{userId:req.userId},orderBy:{createdAt:'desc'},take:8}),db.source.count({where:{userId:req.userId,enabled:true}}),db.document.count({where:{userId:req.userId}}),db.notification.findMany({where:{userId:req.userId,read:false},orderBy:{createdAt:'desc'},take:20})]);
+  const [applications,activities,sources,documents,notifications]=await Promise.all([db.application.findMany({where:{userId:req.userId,...(req.query.scope==='personal'?{status:{not:'DISCOVERED'}}:{})},orderBy:{updatedAt:'desc'}}),db.activity.findMany({where:{userId:req.userId},orderBy:{createdAt:'desc'},take:8}),db.source.count({where:{userId:req.userId,enabled:true}}),db.document.count({where:{userId:req.userId}}),db.notification.findMany({where:{userId:req.userId,read:false},orderBy:{createdAt:'desc'},take:20})]);
   res.json({applications,activities,sources,documents,notifications});
  });
  app.get('/api/profile',async(req,res)=>res.json(await db.profile.findUnique({where:{userId:req.userId}})));
@@ -85,7 +86,8 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory;sea
    return updated;
   });res.json(profile);
  });
- app.get('/api/applications',async(req,res)=>{const [jobs,profile]=await Promise.all([db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'}}),db.profile.findUniqueOrThrow({where:{userId:req.userId}})]);res.json(withLocationPriority(jobs,profile));});
+ app.get('/api/opportunities',async(req,res)=>res.json(await listOpportunities(req.userId,opportunityQuery.parse(req.query))));
+ app.get('/api/applications',async(req,res)=>{if(req.query.scope==='options'){res.json(await db.application.findMany({where:{userId:req.userId},select:{id:true,title:true,company:true},orderBy:{updatedAt:'desc'}}));return;}const [jobs,profile]=await Promise.all([db.application.findMany({where:{userId:req.userId,...(req.query.scope==='personal'?{status:{not:'DISCOVERED'}}:{})},orderBy:{updatedAt:'desc'}}),db.profile.findUniqueOrThrow({where:{userId:req.userId}})]);res.json(withLocationPriority(jobs,profile));});
  app.post('/api/applications',async(req,res)=>{
   const input=applicationSchema.parse(req.body);const data={...input,userId:req.userId,url:input.url?normalizeUrl(input.url):null,dedupeKey:dedupeKey(input.company,input.title,input.location,input.url),deadline:input.deadline?new Date(input.deadline):null,appliedAt:input.appliedAt?new Date(input.appliedAt):input.status==='APPLIED'?new Date():null};
   const job=await db.application.create({data});await activity(req.userId,'Added '+job.title+' at '+job.company,job.id);res.status(201).json(job);
@@ -109,7 +111,7 @@ export function createApp(dependencies: { googleClient?: GoogleClientFactory;sea
  app.delete('/api/sources/:id',async(req,res)=>{await db.source.deleteMany({where:{id:String(req.params.id),userId:req.userId}});res.json({ok:true});});
  app.post('/api/sources/:id/check',async(req,res)=>{const source=await db.source.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId}});res.status(202).json(await enqueue(req.userId,'SOURCE',{sourceId:source.id},'manual:'+source.id+':'+Math.floor(Date.now()/60000)));});
  app.post('/api/discover',async(req,res)=>{const input=z.object({query:z.string().trim().max(500).default('')}).parse(req.body);const task=await startSearchNow(req.userId,input.query,dependencies.searchExecutor);res.status(202).json(task);});
- app.get('/api/searches/:id',async(req,res)=>{const task=await db.task.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId,kind:'SEARCH'}});const [applications,profile]=await Promise.all([db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'},take:200}),db.profile.findUniqueOrThrow({where:{userId:req.userId}})]);res.json({...task,applications:withLocationPriority(applications,profile)});});
+ app.get('/api/searches/:id',async(req,res)=>{const task=await db.task.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId,kind:'SEARCH'}});if(req.query.includeApplications==='false'){res.json(task);return;}const [applications,profile]=await Promise.all([db.application.findMany({where:{userId:req.userId},orderBy:{updatedAt:'desc'},take:200}),db.profile.findUniqueOrThrow({where:{userId:req.userId}})]);res.json({...task,applications:withLocationPriority(applications,profile)});});
  app.get('/api/automation',async(req,res)=>{const settings=await settingsFor(req.userId);const latestRun=await db.task.findFirst({where:{userId:req.userId,kind:'SEARCH'},orderBy:{createdAt:'desc'}});res.json({settings,latestRun,workerAlive:!!settings.workerLastSeenAt&&settings.workerLastSeenAt.getTime()>Date.now()-90000});});
  app.put('/api/automation',async(req,res)=>res.json(await saveSettings(req.userId,automationSchema.parse(req.body))));
  app.post('/api/applications/:id/prepare',async(req,res)=>{const job=await db.application.findFirstOrThrow({where:{id:String(req.params.id),userId:req.userId}});res.status(202).json(await enqueue(req.userId,'APPLICATION',{applicationId:job.id},'prepare-manual:'+job.id+':'+Date.now()));});
